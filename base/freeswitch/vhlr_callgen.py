@@ -24,7 +24,7 @@ freeswitch_api.logger = logger = logging.getLogger()
 class Config(freeswitch_api.Config):
 	def __init__(self):
 		super().__init__()
-		self.max_connected_duration = 180
+		self.max_connected_duration = 1
 		self.src_number = 'vhlr'
 		self.dst_number = None
 		self.internal_message_id = None
@@ -34,8 +34,8 @@ class Config(freeswitch_api.Config):
 		self.dlr_http_method = 'GET'
 		self.dlr_https_validate_cert = False
 		self.reconnect_schedule = None
-		self.check_timeout = 0.5
-
+		self.check_timeout = 1
+		self.reject_code = None
 
 class DLRStatus:
 	ENROUTE = 1
@@ -54,7 +54,7 @@ class CallGenerator:
 		self.calls = {}
 		self.reconnectSchedule = app.config.reconnect_schedule
 		self.callAttemptCount = 0
-		self.call_states = []
+		self.call_state = None
 
 	def start(self):
 		self.createCall()
@@ -85,71 +85,23 @@ class CallGenerator:
 		if delay:
 			await asyncio.sleep(delay)
 
-		logger.debug('Call attempt #%s with delay of %s second(s)',
-					 self.callAttemptCount, delay)
+		logger.debug('Call attempt #%s with delay of %s second(s)', self.callAttemptCount, delay)
 
 		guid = str(uuid.uuid1())
-		call = freeswitch_api.Call(srcNum=self.app.config.src_number,
-								   dstNum=self.app.config.dst_number, guid=guid, owner=self)
+		call = freeswitch_api.Call(srcNum=self.app.config.src_number, dstNum=self.app.config.dst_number, guid=guid, owner=self)
 		self.calls[guid] = call
 		await call.start()
-		self.call_states.append(call.state)
 
-	def onCallConnected(self, call):
-		logger.debug('CallGenerator.onCallConnected(): %s', call.guid)
-
-		if self.app.config.dlr_send and self.app.config.dlr_url:
-			async_utils.create_task(
-				self.sendDlr(DLRStatus.DELIVERED),
-				logger=logger,
-				msg='Send DLR task exception'
-			)
 
 	def onCallTerminated(self, call):
 		logger.debug('CallGenerator.onCallTerminated(): %s', call.guid)
-
+		self.call_state = call.state
 		try:
 			del self.calls[call.guid]
 		except:
 			pass
 
 		self.app.stop()
-
-	async def sendDlr(self, status, stop=False):
-		logger.debug('CallGenerator.sendDlr()')
-
-		send = True
-
-		if not self.app.config.dlr_url:
-			logger.error('Failed to send DLR: DLR URL is not set')
-			send = False
-		elif ('{{id}}' in self.app.config.dlr_url or '?' not in self.app.config.dlr_url) and not self.app.config.internal_message_id:
-			logger.error("Failed to send DLR: internal SMS ID is not set")
-			send = False
-
-		if send:
-			url = self.app.config.dlr_url
-			if '?' in url:
-				url = url.replace('{{message_id}}', str(self.app.config.message_id)).replace(
-					'{{status}}', str(status))
-			else:
-				url = '%s?id=%s&status=%s' % (
-					url, self.app.config.internal_message_id, status)
-
-			client = AsyncHTTPClient()
-			try:
-				req = HTTPRequest(
-					url=url,
-					method=self.app.config.dlr_http_method,
-					validate_cert=self.app.config.dlr_https_validate_cert,
-					allow_nonstandard_methods=True if self.app.config.dlr_http_method == 'POST' else False
-				)
-				await client.fetch(req)
-			except Exception as e:
-				logger.error('DLR sending error: %s', e)
-
-		if stop:
-			self.app.stop()
 
 
 class App:
@@ -274,4 +226,4 @@ def main(params):
 	uvloop.install()
 	asyncio.run(app.start(params))
 	
-	return app.callGenerator.call_states
+	return app.callGenerator.call_state

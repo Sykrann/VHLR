@@ -9,7 +9,7 @@ import logging
 #import shlex
 #import json
 #import uuid
-#import re
+import re
 import random
 import asyncio
 #import uvloop
@@ -35,7 +35,7 @@ class Config:
 		self.dst_address = "192.168.127.130:5060" # address:port
 		self.src_number_pattern = None
 		self.dst_number_pattern = None
-		self.connect_timeout = 15 # sec
+		self.connect_timeout = 20 # sec
 		self.max_connected_duration = None # sec, format: X or (X, Y) - random value in the range [X, Y] for each call
 		self.cps = 1
 		self.max_calls_count = None
@@ -75,28 +75,6 @@ class Config:
 		self.comment = None
 
 
-class Statistics:
-	def __init__(self):
-		self.generatedCalls = 0
-		self.failedCalls = 0
-		self.successfulCalls = 0
-		self.terminatedCalls = 0
-		self.notFoundCalls = 0
-
-		self.outputParams = (
-			('cps', lambda s: config.cps),
-			('generated_calls', lambda s: self.generatedCalls),
-			('failed_calls', lambda s: self.failedCalls),
-			('successful_calls', lambda s: self.successfulCalls),
-			('terminated_calls', lambda s: self.terminatedCalls),
-			('not_found_calls', lambda s: self.notFoundCalls),
-			('run_time', lambda s: '%s mins' % round(app.getRunTime() / 60, 1)),
-		)
-
-	def __str__(self):
-		return ', '.join(['%s = %s' % (name, getter(self)) for name, getter in self.outputParams])	
-
-
 class FSCLI:
 	def __init__(self, host=None, port=None):
 		self.command = 'fs_cli%s%s' % ((' -H %s' % host) if host else '', (' -P %s' % port) if port else '')
@@ -125,23 +103,34 @@ class FSCLI:
 
 
 class CallState:
-	INITIAL      = 0
-	CONNECTING   = 1
-	CONNECTED    = 2
-	TERMINATING  = 3
-	TERMINATED   = 4
 
-	stateToString = {
-		INITIAL:     'INITIAL',
-		CONNECTING:  'CONNECTING',
-		CONNECTED:   'CONNECTED',
-		TERMINATING: 'TERMINATING',
-		TERMINATED:  'TERMINATED'
+	INITIAL		= 1
+	DIALING 	= 2 
+	RINGING 	= 3
+	EARLY 		= 4
+	ACTIVE 		= 5
+	HELD 		= 6
+	RING_WAIT 	= 7
+	HANGUP 		= 8
+	UNHELD 		= 9 
+	DOWN 		= 10
+
+	state_map = {
+		'INITIAL':	 False,
+		'DIALING':	 False,
+		'RINGING': 	 True,
+		'EARLY':	 True,
+		'ACTIVE': 	 True,
+		'HELD': 	 True,
+		'RING_WAIT': True,
+		'HANGUP': 	 True,
+		'UNHELD': 	 True,
+		'DOWN': 	 True
 	}
 
-	@staticmethod
-	def toString(state):
-		return CallState.stateToString.get(state, 'UNKNOWN')
+	reject_code_map = {
+
+	}
 
 
 class Call:
@@ -162,7 +151,7 @@ class Call:
 	async def start(self):
 		logger.debug('Call.start(): %s', self.guid)
 
-		self.state = CallState.CONNECTING
+		self.state = CallState.DIALING
 
 		self.setupTime = datetime.utcnow()
 		loop = asyncio.get_running_loop()
@@ -249,25 +238,22 @@ class Call:
 			logger.debug('Call.start() -> result: %s', result)
 
 		except Exception as e:
-			if self.state == CallState.CONNECTING:
+			if self.state == CallState.DIALING:
 				logger.warning('Failed to connect call, src = %s, dst = %s, uuid = %s: %s', self.srcNum, self.dstNum, self.guid, e)
 				self.onTerminated()
 		else:
-			self.state = CallState.CONNECTED
-
-			stat.successfulCalls += 1
+			self.state = CallState.ACTIVE
 			self.connectTime = datetime.utcnow()
-
 			await self.stop()
 
 	async def stop(self):
 		logger.debug('Call.stop(): %s', self.guid)
 
-		if self.state not in (CallState.CONNECTING, CallState.CONNECTED):
+		if self.state not in (CallState.DIALING, CallState.ACTIVE):
 			logger.debug('Ignore stop in %s state', CallState.toString(self.state))
 			return
 
-		self.state = CallState.TERMINATING
+		#self.state = CallState.HANGUP
 
 		try:
 			await fsCli.execute('uuid_kill %s' % self.guid)
@@ -285,15 +271,11 @@ class Call:
 	def onTerminated(self):
 		logger.debug('Call.onTerminated(): %s', self.guid)
 
-		if self.state == CallState.TERMINATED:
+		if self.state == CallState.HANGUP:
 			return
 
-		if not self.connectTime:
-			stat.failedCalls += 1
+		self.state = CallState.HANGUP
 
-		self.state = CallState.TERMINATED
-
-		stat.terminatedCalls += 1
 		self.disconnectTime = datetime.utcnow()		
 
 		if self.connectTimeoutTask:
@@ -310,14 +292,22 @@ class Call:
 
 	async def onCheckCallState(self, timeout):
 		
-		try:
-			while True:
+		while True:
+			try:
 				callInfo = await fsCli.execute('uuid_dump %s' % self.guid)
-				logger.debug('Call.onCheckCallState -> callInfo: %s', callInfo)
+				logger.debug('Call.onCheckCallState -> callInfo: %s. Type: %s', (callInfo, type(callInfo)))
+				try:
+					self.state = CallState.state_map[re.findall('.*Channel-Call-State: (\w+).*', callInfo)[0]]
+				except Exception as e:
+					logger.info('Call.onCheckCallState -> Cant find call state from: %s. Exception: %s', (callInfo, e))
+					pass
+
+				if self.state in CallState.state_map and CallState.state_map[self.state]:
+					await self.stop()
+
 				await asyncio.sleep(timeout)
-				return True
-		except Exception as e:
-			logger.debug('Call.onCheckCallState -> Exception: %s', e)
+			except Exception as e:
+				logger.debug('Call.onCheckCallState -> Exception: %s', e)
 	
 	async def onConnectTimeoutTimer(self, timeout):
 		await asyncio.sleep(timeout)
@@ -337,6 +327,6 @@ config = None
 fsCli = None
 sqliteCli = None
 
-stat = Statistics()
+
 
 

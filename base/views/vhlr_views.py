@@ -24,7 +24,7 @@ def vhlrRequest(request):
 		messageExist = {'Cant accept HLR request. Error: %s' % e}
 		return Response(messageExist)
 	
-	result = vhlr_callgen.main({'dst_number': dst_number})
+	call_state = vhlr_callgen.main({'dst_number': dst_number})
 
-	messageExist = {'Request for number %s was accepted' % (dst_number)}
+	messageExist = {'Number %s has status: %s' % (dst_number, call_state)}
 	return Response(messageExist)

@@ -35,7 +35,7 @@ class Config:
 		self.dst_address = "192.168.127.130:5060" # address:port
 		self.src_number_pattern = None
 		self.dst_number_pattern = None
-		self.connect_timeout = 5 # sec
+		self.connect_timeout = 15 # sec
 		self.max_connected_duration = None # sec, format: X or (X, Y) - random value in the range [X, Y] for each call
 		self.cps = 1
 		self.max_calls_count = None
@@ -74,33 +74,6 @@ class Config:
 		self.proc_title = ''
 		self.comment = None
 
-class GenLogStatus:	
-	UNKNOWN     = None
-	RUNNING     = 1
-	ERROR       = 2
-	HUNG        = 3
-	TERMINATING = 4
-	FINISHED    = 10
-	KILLED      = 20
-
-
-class SchedLogStatus:
-	OK      = 1
-	WARNING = 10
-	ERROR   = 20
-
-
-class StopStatus:
-	OK             = 1
-	STOP_BY_SIGNAL = 2
-	ERROR          = 3
-
-
-class ArgumentParser(argparse.ArgumentParser):
-	def error(self, message):
-		# overridden to avoid exit
-		raise Exception(message)
-
 
 class Statistics:
 	def __init__(self):
@@ -123,29 +96,6 @@ class Statistics:
 	def __str__(self):
 		return ', '.join(['%s = %s' % (name, getter(self)) for name, getter in self.outputParams])	
 
-
-class LocalSystemCLI:
-	async def execute(self, cmd, timeout=None):
-		proc = await asyncio.create_subprocess_shell(
-			cmd,
-			stdout=asyncio.subprocess.PIPE,
-			stderr=asyncio.subprocess.PIPE)
-
-		if timeout:
-			stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-		else:
-			stdout, stderr = await proc.communicate()
-
-		if proc.returncode:
-			if stderr:
-				error = stderr.decode().strip()
-			else:
-				error = 'Process exited with code %s' % proc.returncode
-			raise Exception(error)
-
-		if stdout:
-			result = stdout.decode().strip()
-			return result
 
 class FSCLI:
 	def __init__(self, host=None, port=None):
@@ -303,7 +253,7 @@ class Call:
 			self.checkCallStateTask = async_utils.create_task(
 				self.onCheckCallState(config.check_timeout),
 				logger=logger,
-				msg='Checking current call state',
+				msg='Checking current call state. uuid: %s',
 				msg_args=(self.guid,)
 			)
 
@@ -355,6 +305,9 @@ class Call:
 		if self.checkCallStateTask:
 			self.checkCallStateTask.cancel()
 			self.checkCallStateTask = None
+		
+		if self.owner:
+			self.owner.onCallTerminated(self)
 
 
 	async def onCheckCallState(self, timeout):

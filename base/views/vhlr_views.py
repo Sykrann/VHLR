@@ -15,10 +15,11 @@ redis_pool = redis.ConnectionPool(host='localhost', port=6379, db=3)
 # Connect to Redis using the pool
 redis_client = redis.StrictRedis(connection_pool=redis_pool)
 
-@api_view(['GET'])
+@api_view(['POST'])
 def vhlrRequest(request):
+	data = request.data
 	try:
-		dst_number = request.GET.get('dst_number')
+		dst_number = data['dst_number']
 	except Exception as e:
 		messageExist = {'Cant accept HLR request. Error: %s' % e}
 		return Response(messageExist)

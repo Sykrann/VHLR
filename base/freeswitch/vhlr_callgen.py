@@ -34,6 +34,7 @@ class Config(freeswitch_api.Config):
 		self.dlr_http_method = 'GET'
 		self.dlr_https_validate_cert = False
 		self.reconnect_schedule = None
+		self.check_timeout = 0.5
 
 
 class DLRStatus:
@@ -112,19 +113,7 @@ class CallGenerator:
 		except:
 			pass
 
-		if call.connectTime:
-			self.app.stop()
-		elif self.reconnectSchedule:
-			self.createCall()
-		else:
-			if self.app.config.dlr_send and self.app.config.dlr_url:
-				async_utils.create_task(
-					self.sendDlr(DLRStatus.UNDELIVERABLE, stop=True),
-					logger=logger,
-					msg='Send DLR task exception'
-				)
-			else:
-				self.app.stop()
+		self.app.stop()
 
 	async def sendDlr(self, status, stop=False):
 		logger.debug('CallGenerator.sendDlr()')
@@ -284,4 +273,5 @@ def main(params):
 	freeswitch_api.app = app = App()
 	uvloop.install()
 	asyncio.run(app.start(params))
+	
 	return app.callGenerator.call_states

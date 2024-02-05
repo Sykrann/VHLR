@@ -104,17 +104,6 @@ class FSCLI:
 
 class CallState:
 
-	INITIAL		= 1
-	DIALING 	= 2 
-	RINGING 	= 3
-	EARLY 		= 4
-	ACTIVE 		= 5
-	HELD 		= 6
-	RING_WAIT 	= 7
-	HANGUP 		= 8
-	UNHELD 		= 9 
-	DOWN 		= 10
-
 	state_map = {
 		'INITIAL':	 False,
 		'DIALING':	 False,
@@ -139,7 +128,7 @@ class Call:
 		self.dstNum = dstNum
 		self.guid = guid
 		self.owner = owner
-		self.state = CallState.INITIAL
+		self.state = 'INITIAL'
 
 		self.setupTime = None
 		self.connectTime = None
@@ -151,7 +140,7 @@ class Call:
 	async def start(self):
 		logger.debug('Call.start(): %s', self.guid)
 
-		self.state = CallState.DIALING
+		self.state = 'DIALING'
 
 		self.setupTime = datetime.utcnow()
 		loop = asyncio.get_running_loop()
@@ -238,19 +227,19 @@ class Call:
 			logger.debug('Call.start() -> result: %s', result)
 
 		except Exception as e:
-			if self.state == CallState.DIALING:
+			if self.state == 'DIALING':
 				logger.warning('Failed to connect call, src = %s, dst = %s, uuid = %s: %s', self.srcNum, self.dstNum, self.guid, e)
 				self.onTerminated()
 		else:
-			self.state = CallState.ACTIVE
+			self.state = 'ACTIVE'
 			self.connectTime = datetime.utcnow()
 			await self.stop()
 
 	async def stop(self):
 		logger.debug('Call.stop(): %s', self.guid)
 
-		if self.state not in (CallState.DIALING, CallState.ACTIVE):
-			logger.debug('Ignore stop in %s state', CallState.toString(self.state))
+		if self.state not in ('DIALING', 'ACTIVE'):
+			logger.debug('Ignore stop in %s state', self.state)
 			return
 
 		#self.state = CallState.HANGUP
@@ -271,10 +260,10 @@ class Call:
 	def onTerminated(self):
 		logger.debug('Call.onTerminated(): %s', self.guid)
 
-		if self.state == CallState.HANGUP:
+		if self.state == 'HANGUP':
 			return
 
-		self.state = CallState.HANGUP
+		self.state = 'HANGUP'
 
 		self.disconnectTime = datetime.utcnow()		
 
@@ -295,15 +284,17 @@ class Call:
 		while True:
 			try:
 				callInfo = await fsCli.execute('uuid_dump %s' % self.guid)
-				logger.debug('Call.onCheckCallState -> callInfo: %s. Type: %s', (callInfo, type(callInfo)))
+				logger.debug('Call.onCheckCallState -> callInfo: %s', callInfo)
 				try:
 					self.state = CallState.state_map[re.findall('.*Channel-Call-State: (\w+).*', callInfo)[0]]
 				except Exception as e:
 					logger.info('Call.onCheckCallState -> Cant find call state from: %s. Exception: %s', (callInfo, e))
-					pass
+					await self.stop()
+					break
 
 				if self.state in CallState.state_map and CallState.state_map[self.state]:
 					await self.stop()
+					break
 
 				await asyncio.sleep(timeout)
 			except Exception as e:
@@ -314,12 +305,6 @@ class Call:
 
 		logger.debug('Connect timeout exceeds, stopping call with uuid = %s', self.guid)
 		await self.stop()
-
-
-class CallGeneratorState:
-	INITIAL     = 0
-	RUNNING     = 1
-	TERMINATING = 2
 
 
 # global objects will be inited in App.start()

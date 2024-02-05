@@ -3,17 +3,17 @@
 import sys
 import os
 import logging
-import signal
-import setproctitle
-import argparse
-import shlex
-import json
-import uuid
-import re
+#import signal
+#import setproctitle
+#import argparse
+#import shlex
+#import json
+#import uuid
+#import re
 import random
 import asyncio
-import uvloop
-import asyncssh
+#import uvloop
+#import asyncssh
 
 from datetime import datetime
 from collections import OrderedDict, deque
@@ -166,6 +166,13 @@ class Call:
 
 		self.setupTime = datetime.utcnow()
 		loop = asyncio.get_running_loop()
+		
+		self.checkCallStateTask = async_utils.create_task(
+				self.onCheckCallState(config.check_timeout),
+				logger=logger,
+				msg='Checking current call state. uuid: %s',
+				msg_args=(self.guid,)
+			)
 
 		if config.connect_timeout:
 			self.connectTimeoutTask = async_utils.create_task(
@@ -239,6 +246,7 @@ class Call:
 			 }
 
 			result = await fsCli.execute(cmd)
+			logger.debug('Call.start() -> result: %s', result)
 
 		except Exception as e:
 			if self.state == CallState.CONNECTING:
@@ -250,17 +258,7 @@ class Call:
 			stat.successfulCalls += 1
 			self.connectTime = datetime.utcnow()
 
-			self.checkCallStateTask = async_utils.create_task(
-				self.onCheckCallState(config.check_timeout),
-				logger=logger,
-				msg='Checking current call state. uuid: %s',
-				msg_args=(self.guid,)
-			)
-
-			if self.connectTimeoutTask:
-				self.connectTimeoutTask.cancel()
-				self.connectTimeoutTask = None
-
+			await self.stop()
 
 	async def stop(self):
 		logger.debug('Call.stop(): %s', self.guid)
@@ -311,12 +309,15 @@ class Call:
 
 
 	async def onCheckCallState(self, timeout):
-		await asyncio.sleep(timeout)
 		
-		callInfo = await fsCli.execute('uuid_dump %s' % self.guid)
-		logger.debug('Call.onCheckCallState -> callInfo: %s', callInfo)
-		return True
-
+		try:
+			while True:
+				callInfo = await fsCli.execute('uuid_dump %s' % self.guid)
+				logger.debug('Call.onCheckCallState -> callInfo: %s', callInfo)
+				await asyncio.sleep(timeout)
+				return True
+		except Exception as e:
+			logger.debug('Call.onCheckCallState -> Exception: %s', e)
 	
 	async def onConnectTimeoutTimer(self, timeout):
 		await asyncio.sleep(timeout)

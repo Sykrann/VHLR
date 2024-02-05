@@ -8,7 +8,7 @@ import sys
 import os
 import time
 sys.path.append(os.path.join(os.path.abspath(os.getcwd()), 'base/freeswitch'))
-import vhrl_callgen
+import vhlr_callgen
 
  # Create a connection pool
 redis_pool = redis.ConnectionPool(host='localhost', port=6379, db=3)
@@ -24,7 +24,7 @@ def vhlrRequest(request):
 		messageExist = {'Cant accept HLR request. Error: %s' % e}
 		return Response(messageExist)
 	
-	result = vhrl_callgen.main({'dst_number': dst_number})
+	result = vhlr_callgen.main({'dst_number': dst_number})
 
-	messageExist = {'number: %s, number_status' % (dst_number, result)}
+	messageExist = {'Request for number %s was accepted' % (dst_number)}
 	return Response(messageExist)

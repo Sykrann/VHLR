@@ -226,7 +226,7 @@ class Call:
 		except Exception as e:
 			if self.state == 'DIALING':
 				logger.warning('Failed to connect call, src = %s, dst = %s, uuid = %s: %s', self.srcNum, self.dstNum, self.guid, e)
-				if re.search(self.available_reject_mask, e):
+				if re.search(self.available_reject_mask, str(e)):
 					self.dst_number_available = True
 				self.onTerminated()
 		else:

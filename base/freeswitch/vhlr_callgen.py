@@ -102,20 +102,20 @@ class CallGenerator:
 			msg='Create redis task exception'
 		)
 
-	async def fillRedisTask(self):
+	async def fillRedisTask(self, call):
 		try:
-			await cache().set(self.dst_number, self.dst_number_available)
+			await cache().set(call.dstNum, self.dst_number_available)
 		except Exception as e:
 			logger.error("CallGenerator.fillRedisTask() -> Failed to save key '%s' to cache. Error: %s", (self.dst_number_available, e))
 
-		logger.info("CallGenerator.fillRedisTask() -> %s: %s", (self.dst_number, self.dst_number_available))
+		logger.info("CallGenerator.fillRedisTask() -> %s: %s", (call.dstNum, self.dst_number_available))
 
 	def onCallTerminated(self, call):
 		logger.debug('CallGenerator.onCallTerminated(): %s', call.guid)
 		self.dst_number_available = call.dst_number_available
 
 		# Add number status to Redis
-		self.fillRedis()
+		self.fillRedis(call)
 
 		try:
 			del self.calls[call.guid]

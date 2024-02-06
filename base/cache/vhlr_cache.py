@@ -1,7 +1,10 @@
 import asyncio
 import aioredis
-import logging as log
+import os, sys
+#import logging 
 
+sys.path.append(os.path.join(os.path.abspath(os.getcwd()), 'base/vhlr_callgen'))
+from vhlr_callgen import logger
 
 class CacheBase(object):
 	def __init__(self, loop, config):
@@ -136,7 +139,7 @@ class InternalCache(CacheBase):
 
 				self.lastCheckTime = now
 			except Exception as e:
-				self.log.error('Cache timer processing error: %s', e, exc_info=True)
+				logger.error('Cache timer processing error: %s', e, exc_info=True)
 
 			await asyncio.sleep(timeout)		
 
@@ -165,7 +168,7 @@ class RedisCache(CacheBase):
 		try:
 			await self.redis.setex(key, self.expireTime, value)
 		except Exception as e:			
-			log.warning("Cant set new Redis key: %s. Error: %s", key, e)
+			logger.warning("Cant set new Redis key: %s. Error: %s", key, e)
 
 	async def get(self, key):
 		return await self.redis.get(key, encoding='utf-8')

@@ -32,15 +32,15 @@ def vhlrRequest(request):
 		redis_value = None
 
 	if redis_value:
-		messageExist = {'number': dst_number, 'available': bool(redis_value)}
+		if redis_value.decode('utf-8') == 'True':
+			dst_number_available = True
+		elif redis_value.decode('utf-8') == 'False':
+			dst_number_available = False
+		messageExist = {'number': dst_number, 'available': dst_number_available}
 	else:
 		dst_number_available = vhlr_callgen.main({'dst_number': dst_number})
-		
-		if dst_number_available:
-			messageExist = {'number': dst_number,  'available': True}
-		else:
-			messageExist = {'number': dst_number,  'available': False}
-		
+		messageExist = {'number': dst_number,  'available': dst_number_available}
+
 		# Add number status to the Redis
 		try:
 			redis_client.setex(dst_number, redis_expire_timeout, str(dst_number_available))

@@ -35,7 +35,7 @@ class Config:
 		self.dst_address = "192.168.127.130:5060" # address:port
 		self.src_number_pattern = None
 		self.dst_number_pattern = None
-		self.connect_timeout = 20 # sec
+		self.connect_timeout = 10 # sec
 		self.max_connected_duration = None # sec, format: X or (X, Y) - random value in the range [X, Y] for each call
 		self.cps = 1
 		self.max_calls_count = None
@@ -117,10 +117,6 @@ class CallState:
 		'DOWN': 	 True
 	}
 
-	reject_code_map = {
-
-	}
-
 
 class Call:
 	def __init__(self, srcNum, dstNum, guid, owner):
@@ -129,6 +125,8 @@ class Call:
 		self.guid = guid
 		self.owner = owner
 		self.state = 'INITIAL'
+		self.dst_number_available = False
+		self.available_reject_mask = 'USER_BUSY'
 
 		self.setupTime = None
 		self.connectTime = None
@@ -159,7 +157,6 @@ class Call:
 				msg='Connect timeout timer exception, uuid: %s',
 				msg_args=(self.guid,)
 			)
-
 
 		try:
 			audioFilesDelimiter = '!'
@@ -229,6 +226,8 @@ class Call:
 		except Exception as e:
 			if self.state == 'DIALING':
 				logger.warning('Failed to connect call, src = %s, dst = %s, uuid = %s: %s', self.srcNum, self.dstNum, self.guid, e)
+				if re.search(self.available_reject_mask, e):
+					self.dst_number_available = True
 				self.onTerminated()
 		else:
 			self.state = 'ACTIVE'
@@ -238,9 +237,9 @@ class Call:
 	async def stop(self):
 		logger.debug('Call.stop(): %s', self.guid)
 
-		if self.state not in ('DIALING', 'ACTIVE'):
-			logger.debug('Ignore stop in %s state', self.state)
-			return
+		# if self.state not in ('DIALING', 'ACTIVE'):
+		# 	logger.debug('Ignore stop in %s state', self.state)
+		# 	return
 
 		#self.state = CallState.HANGUP
 
@@ -278,27 +277,29 @@ class Call:
 		if self.owner:
 			self.owner.onCallTerminated(self)
 
-
 	async def onCheckCallState(self, timeout):
-		
 		while True:
 			try:
 				callInfo = await fsCli.execute('uuid_dump %s' % self.guid)
 				logger.debug('Call.onCheckCallState -> callInfo: %s', callInfo)
 				try:
-					self.state = CallState.state_map[re.findall('.*Channel-Call-State: (\w+).*', callInfo)[0]]
+					self.state = re.findall('.*Channel-Call-State: (\w+).*', callInfo)[0]
+					logger.info('Call.onCheckCallState -> state: %s', self.state)
 				except Exception as e:
 					logger.info('Call.onCheckCallState -> Cant find call state from: %s. Exception: %s', (callInfo, e))
 					await self.stop()
 					break
 
 				if self.state in CallState.state_map and CallState.state_map[self.state]:
+					self.dst_number_available = True
 					await self.stop()
 					break
 
 				await asyncio.sleep(timeout)
 			except Exception as e:
 				logger.debug('Call.onCheckCallState -> Exception: %s', e)
+				await self.stop()
+				break
 	
 	async def onConnectTimeoutTimer(self, timeout):
 		await asyncio.sleep(timeout)
@@ -306,11 +307,10 @@ class Call:
 		logger.debug('Connect timeout exceeds, stopping call with uuid = %s', self.guid)
 		await self.stop()
 
-
 # global objects will be inited in App.start()
 config = None
 fsCli = None
-sqliteCli = None
+
 
 
 

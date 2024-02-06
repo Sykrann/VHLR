@@ -35,17 +35,6 @@ class Config(freeswitch_api.Config):
 		self.dlr_https_validate_cert = False
 		self.reconnect_schedule = None
 		self.check_timeout = 1
-		self.reject_code = None
-
-class DLRStatus:
-	ENROUTE = 1
-	DELIVERED = 2
-	EXPIRED = 3
-	DELETED = 4
-	UNDELIVERABLE = 5
-	ACCEPTED = 6
-	UNKNOWN = 7
-	REJECTED = 8
 
 
 class CallGenerator:
@@ -54,7 +43,7 @@ class CallGenerator:
 		self.calls = {}
 		self.reconnectSchedule = app.config.reconnect_schedule
 		self.callAttemptCount = 0
-		self.call_state = None
+		self.dst_number_available = None
 
 	def start(self):
 		self.createCall()
@@ -92,10 +81,9 @@ class CallGenerator:
 		self.calls[guid] = call
 		await call.start()
 
-
 	def onCallTerminated(self, call):
 		logger.debug('CallGenerator.onCallTerminated(): %s', call.guid)
-		self.call_state = call.state
+		self.dst_number_available = call.dst_number_available
 		try:
 			del self.calls[call.guid]
 		except:
@@ -226,4 +214,4 @@ def main(params):
 	uvloop.install()
 	asyncio.run(app.start(params))
 	
-	return app.callGenerator.call_state
+	return app.callGenerator.dst_number_available

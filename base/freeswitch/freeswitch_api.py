@@ -256,7 +256,7 @@ class Call:
 
 		self.onTerminated()
 
-	def onTerminated(self):
+	async def onTerminated(self):
 		logger.debug('Call.onTerminated(): %s', self.guid)
 
 		if self.state == 'HANGUP':

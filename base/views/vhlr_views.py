@@ -24,10 +24,20 @@ def vhlrRequest(request):
 		messageExist = {'Cant accept HLR request. Error: %s' % e}
 		return Response(messageExist)
 	
-	dst_number_available = vhlr_callgen.main({'dst_number': dst_number})
-	if dst_number_available:
+	# Get a value from the cache
+	try:
+		redis_value = redis_client.get(dst_number)
+	except Exception as e:
+		redis_value = None
+
+	if redis_value:
+		print (redis_value.decode("utf-8"))
 		messageExist = {'%s available' % dst_number : True }
 	else:
-		messageExist = {'%s available' % dst_number : False }
-		
+		dst_number_available = vhlr_callgen.main({'dst_number': dst_number})
+		if dst_number_available:
+			messageExist = {'%s available' % dst_number : True }
+		else:
+			messageExist = {'%s available' % dst_number : False }
+
 	return Response(messageExist, status=status.HTTP_200_OK)

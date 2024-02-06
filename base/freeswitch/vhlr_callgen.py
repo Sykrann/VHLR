@@ -8,15 +8,18 @@ import json
 import uuid
 import asyncio
 import uvloop
+import sys
 
 from datetime import datetime
 
 from tornado.httpclient import AsyncHTTPClient, HTTPRequest
 AsyncHTTPClient.configure('tornado.curl_httpclient.CurlAsyncHTTPClient')
 
+sys.path.append(os.path.join(os.path.abspath(os.getcwd()), 'base/cache'))
+from vhlr_cache import initCache, cache
+
 RUN_DIR = os.path.abspath(os.getcwd())
 INSTANCE_NAME = RUN_DIR.split('/')[-1]
-
 
 freeswitch_api.logger = logger = logging.getLogger()
 
@@ -35,6 +38,17 @@ class Config(freeswitch_api.Config):
 		self.dlr_https_validate_cert = False
 		self.reconnect_schedule = None
 		self.check_timeout = 1
+		
+		# Cache options
+		self.cache_type = 'redis'
+		self.cache_key_time = 60
+		
+		# Redis options
+		self.redis_address            = 'redis://localhost'
+		self.redis_db                 = 3
+		self.redis_password           = None
+		self.redis_pool_minsize       = 5
+		self.redis_pool_maxsize       = 10
 
 
 class CallGenerator:
@@ -81,9 +95,16 @@ class CallGenerator:
 		self.calls[guid] = call
 		await call.start()
 
-	def onCallTerminated(self, call):
+	async def onCallTerminated(self, call):
 		logger.debug('CallGenerator.onCallTerminated(): %s', call.guid)
 		self.dst_number_available = call.dst_number_available
+
+		# Add number status to Redis
+		try:
+			await cache().set(self.dst_number, self.dst_number_available)
+		except Exception as e:
+			logger.error("CallGenerator.onCallTerminated() -> Failed to save key '%s' to cache. Error: %s", (self.dst_number_available, e))
+
 		try:
 			del self.calls[call.guid]
 		except:
@@ -118,6 +139,13 @@ class App:
 		self.initLogger()
 		logger.debug('Started')
 		logger.setLevel(getattr(logging, self.config.loglevel.upper()))
+
+		# Init Redis cache
+		try:
+			await initCache(self.config.self.cache_type, self.loop, self.config)
+		except Exception as e:
+			logger.error("Failed to init '%s' cache. Error: %s", self.config.cache_type, e)
+			raise
 
 		freeswitch_api.fsCli = self.fsCli = freeswitch_api.FSCLI(
 			host=self.config.fs_cli_host, port=self.config.fs_cli_port)

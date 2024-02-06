@@ -14,6 +14,7 @@ import vhlr_callgen
 redis_pool = redis.ConnectionPool(host='localhost', port=6379, db=3)
 # Connect to Redis using the pool
 redis_client = redis.StrictRedis(connection_pool=redis_pool)
+redis_expire_timeout = 60
 
 @api_view(['POST'])
 def vhlrRequest(request):
@@ -31,13 +32,18 @@ def vhlrRequest(request):
 		redis_value = None
 
 	if redis_value:
-		print (redis_value.decode("utf-8"))
-		messageExist = {'%s available' % dst_number : True }
+		messageExist = {'%s available' % dst_number : redis_value }
 	else:
 		dst_number_available = vhlr_callgen.main({'dst_number': dst_number})
 		if dst_number_available:
 			messageExist = {'%s available' % dst_number : True }
 		else:
 			messageExist = {'%s available' % dst_number : False }
+		
+		# Add number status to the Redis
+		try:
+			redis_client.get(dst_number, redis_expire_timeout, str(dst_number_available))
+		except Exception as e:
+			pass
 
 	return Response(messageExist, status=status.HTTP_200_OK)

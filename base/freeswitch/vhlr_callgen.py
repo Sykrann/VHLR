@@ -15,8 +15,8 @@ from datetime import datetime
 from tornado.httpclient import AsyncHTTPClient, HTTPRequest
 AsyncHTTPClient.configure('tornado.curl_httpclient.CurlAsyncHTTPClient')
 
-sys.path.append(os.path.join(os.path.abspath(os.getcwd()), 'base/cache'))
-from vhlr_cache import initCache, cache
+# sys.path.append(os.path.join(os.path.abspath(os.getcwd()), 'base/cache'))
+# from vhlr_cache import initCache, cache
 
 RUN_DIR = os.path.abspath(os.getcwd())
 INSTANCE_NAME = RUN_DIR.split('/')[-1]
@@ -40,15 +40,15 @@ class Config(freeswitch_api.Config):
 		self.check_timeout = 1
 		
 		# Cache options
-		self.cache_type = 'redis'
-		self.cache_key_time = 60
+		# self.cache_type = 'redis'
+		# self.cache_key_time = 60
 		
-		# Redis options
-		self.redis_address            = 'redis://localhost'
-		self.redis_db                 = 3
-		self.redis_password           = None
-		self.redis_pool_minsize       = 5
-		self.redis_pool_maxsize       = 10
+		# # Redis options
+		# self.redis_address            = 'redis://localhost'
+		# self.redis_db                 = 3
+		# self.redis_password           = None
+		# self.redis_pool_minsize       = 5
+		# self.redis_pool_maxsize       = 10
 
 
 class CallGenerator:
@@ -58,6 +58,7 @@ class CallGenerator:
 		self.reconnectSchedule = app.config.reconnect_schedule
 		self.callAttemptCount = 0
 		self.dst_number_available = None
+		# self.fillRedisTask = None
 
 	def start(self):
 		self.createCall()
@@ -70,7 +71,7 @@ class CallGenerator:
 			logger.info('Waiting for call termination...')
 
 		while self.calls:
-			await asyncio.sleep(0.1)
+			await asyncio.sleep(0.2)
 
 	def createCall(self):
 		delay = 0
@@ -95,27 +96,27 @@ class CallGenerator:
 		self.calls[guid] = call
 		await call.start()
 
-	def fillRedis(self, call):
-		async_utils.create_task(
-			self.fillRedisTask(call),
-			logger=logger,
-			msg='Create redis task exception'
-		)
+	# def fillRedis(self, call):
+	# 	self.fillRedisTask = async_utils.create_task(
+	# 		self.onFillRedisTask(call),
+	# 		logger=logger,
+	# 		msg='Create redis task exception'
+	# 	)
 
-	async def fillRedisTask(self, call):
-		try:
-			await cache().set(call.dstNum, self.dst_number_available)
-		except Exception as e:
-			logger.error("CallGenerator.fillRedisTask() -> Failed to save key '%s' to cache. Error: %s", e)
+	# async def onFillRedisTask(self, call):
+	# 	try:
+	# 		await cache().set(call.dstNum, self.dst_number_available)
+	# 	except Exception as e:
+	# 		logger.error("CallGenerator.fillRedisTask() -> Failed to save key '%s' to cache. Error: %s", e)
 
-		logger.info("CallGenerator.fillRedisTask() -> %s: %s", call.dstNum, self.dst_number_available)
+	# 	logger.info("CallGenerator.fillRedisTask() -> %s: %s", call.dstNum, self.dst_number_available)
 
 	def onCallTerminated(self, call):
 		logger.debug('CallGenerator.onCallTerminated(): %s', call.guid)
 		self.dst_number_available = call.dst_number_available
 
 		# Add number status to Redis
-		self.fillRedis(call)
+		# self.fillRedis(call)
 
 		try:
 			del self.calls[call.guid]
@@ -143,7 +144,7 @@ class App:
 		freeswitch_api.config = self.config = Config()
 		self.config.__dict__.update(params)
 
-		self.loop = asyncio.get_running_loop()
+		self.loop = loop = asyncio.get_running_loop()
 		self.startLoopTime = self.loop.time()
 
 		os.umask(0)
@@ -153,11 +154,11 @@ class App:
 		logger.setLevel(getattr(logging, self.config.loglevel.upper()))
 
 		# Init Redis cache
-		try:
-			await initCache(self.config.cache_type, self.loop, self.config)
-		except Exception as e:
-			logger.error("Failed to init '%s' cache. Error: %s", self.config.cache_type, e)
-			raise
+		# try:
+		# 	await initCache(self.config.cache_type, loop, self.config)
+		# except Exception as e:
+		# 	logger.error("Failed to init '%s' cache. Error: %s", self.config.cache_type, e)
+		# 	raise
 
 		freeswitch_api.fsCli = self.fsCli = freeswitch_api.FSCLI(
 			host=self.config.fs_cli_host, port=self.config.fs_cli_port)

@@ -168,7 +168,7 @@ class RedisCache(CacheBase):
 		try:
 			await self.redis.setex(key, self.expireTime, value)
 		except Exception as e:			
-			logger.warning("Cant set new Redis key: %s. Error: %s", key, e)
+			logger.warning("Cant set new Redis key: %s. Value: %s Error: %s", key, value, e)
 
 	async def get(self, key):
 		return await self.redis.get(key, encoding='utf-8')

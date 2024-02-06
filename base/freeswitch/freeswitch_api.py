@@ -69,7 +69,7 @@ class Config:
 		self.sched_log_id = None
 		self.gen_log_id = None
 		self.user_id = None
-		self.logfile = '/var/log/vhlr/vhlr.log'
+		self.logfile = '/var/log/vhlr.log'
 		self.loglevel = 'debug'
 		self.proc_title = ''
 		self.comment = None
@@ -256,7 +256,7 @@ class Call:
 
 		self.onTerminated()
 
-	async def onTerminated(self):
+	def onTerminated(self):
 		logger.debug('Call.onTerminated(): %s', self.guid)
 
 		if self.state == 'HANGUP':

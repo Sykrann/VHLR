@@ -95,15 +95,27 @@ class CallGenerator:
 		self.calls[guid] = call
 		await call.start()
 
-	async def onCallTerminated(self, call):
+	def fillRedis(self):
+		async_utils.create_task(
+			self.fillRedisTask(),
+			logger=logger,
+			msg='Create redis task exception'
+		)
+
+	async def fillRedisTask(self):
+		try:
+			await cache().set(self.dst_number, self.dst_number_available)
+		except Exception as e:
+			logger.error("CallGenerator.fillRedisTask() -> Failed to save key '%s' to cache. Error: %s", (self.dst_number_available, e))
+
+		logger.info("CallGenerator.fillRedisTask() -> %s: %s", (self.dst_number, self.dst_number_available))
+
+	def onCallTerminated(self, call):
 		logger.debug('CallGenerator.onCallTerminated(): %s', call.guid)
 		self.dst_number_available = call.dst_number_available
 
 		# Add number status to Redis
-		try:
-			await cache().set(self.dst_number, self.dst_number_available)
-		except Exception as e:
-			logger.error("CallGenerator.onCallTerminated() -> Failed to save key '%s' to cache. Error: %s", (self.dst_number_available, e))
+		self.fillRedis()
 
 		try:
 			del self.calls[call.guid]
@@ -142,7 +154,7 @@ class App:
 
 		# Init Redis cache
 		try:
-			await initCache(self.config.self.cache_type, self.loop, self.config)
+			await initCache(self.config.cache_type, self.loop, self.config)
 		except Exception as e:
 			logger.error("Failed to init '%s' cache. Error: %s", self.config.cache_type, e)
 			raise

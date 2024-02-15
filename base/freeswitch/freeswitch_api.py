@@ -104,18 +104,61 @@ class FSCLI:
 
 class CallState:
 
-	state_map = {
-		'INITIAL':	 False,
-		'DIALING':	 False,
-		'RINGING': 	 True,
-		'EARLY':	 True,
-		'ACTIVE': 	 True,
-		'HELD': 	 True,
-		'RING_WAIT': True,
-		'HANGUP': 	 True,
-		'UNHELD': 	 True,
-		'DOWN': 	 True
+	states_disconnect_code_map = {
+		'INITIAL':	 'INITIAL',
+		'DIALING':	 'DIALING',
+		'RINGING': 	 'RINGING',
+		'EARLY':	 'RINGING',
+		'ACTIVE': 	 'CONNECTED',
+		'HELD': 	 'CONNECTED',
+		'RING_WAIT': 'RINGING',
+		'HANGUP': 	 'HANGUP',
+		'UNHELD': 	 'CONNECTED',
+		'DOWN': 	 'HANGUP'
 	}
+
+	disconnect_codes_map = {
+		'CONNECTED':					'200',
+		'RINGING':						'183',
+		'UNALLOCATED_NUMBER':			'404',
+		'NO_ROUTE_TRANSIT_NET': 		'404',
+		'NO_ROUTE_DESTINATION':			'404',
+		'USER_BUSY': 					'486',
+		'NO_USER_RESPONSE': 			'408',
+		'RINGING_TIMEOUT':				'408',
+		'NO_ANSWER': 					'480',
+		'SUBSCRIBER_ABSENT':			'480',
+		'CALL_REJECTED': 				'603',
+		'NUMBER_CHANGED': 				'410',
+		'REDIRECTION_TO_NEW_DESTINATION': '410',
+		'EXCHANGE_ROUTING_ERROR': 		'483',
+		'DESTINATION_OUT_OF_ORDER': 	'502',
+		'INVALID_NUMBER_FORMAT': 		'484',
+		'FACILITY_REJECTED': 			'501',
+		'NORMAL_UNSPECIFIED':			'480',
+		'NORMAL_CIRCUIT_CONGESTION':	'503',
+		'NETWORK_OUT_OF_ORDER': 		'502',
+		'NORMAL_TEMPORARY_FAILURE': 	'503',
+		'SWITCH_CONGESTION': 			'503',
+		'REQUESTED_CHAN_UNAVAIL': 		'503',
+		'OUTGOING_CALL_BARRED': 		'403',
+		'INCOMING_CALL_BARRED': 		'403',
+		'BEARERCAPABILITY_NOTAUTH': 	'403',
+		'BEARERCAPABILITY_NOTAVAIL': 	'503',
+		'BEARERCAPABILITY_NOTIMPL': 	'488',
+		'FACILITY_NOT_IMPLEMENTED': 	'501',
+		'SERVICE_NOT_IMPLEMENTED': 		'501',
+		'INCOMPATIBLE_DESTINATION': 	'488',
+		'RECOVERY_ON_TIMER_EXPIRE': 	'504',
+		'ORIGINATOR_CANCEL': 			'487'
+	}
+
+	success_disconnect_codes = [
+		'CONNECTED',
+		'RINGING',
+		'USER_BUSY',
+		'NORMAL_TEMPORARY_FAILURE'
+	]
 
 
 class Call:
@@ -125,8 +168,7 @@ class Call:
 		self.guid = guid
 		self.owner = owner
 		self.state = 'INITIAL'
-		self.dst_number_available = False
-		self.available_reject_mask = 'USER_BUSY'
+		self.disconnect_code = None
 
 		self.setupTime = None
 		self.connectTime = None
@@ -137,7 +179,6 @@ class Call:
 
 	async def start(self):
 		logger.debug('Call.start(): %s', self.guid)
-
 		self.state = 'DIALING'
 
 		self.setupTime = datetime.utcnow()
@@ -165,6 +206,7 @@ class Call:
 				'origination_caller_id_number=%(src_number)s,'
 				'codec_string=%(codecs)s,'
 				'hangup_after_bridge=true,'
+				'sip_cid_type=none,'
 				'ignore_early_media=true,'
 				'playback_delimiter=%(files_delimiter)s,'
 				'playback_sleep_val=%(play_sleep_ms)s'
@@ -206,31 +248,39 @@ class Call:
 			else:
 				application = '&sleep(0)'
 
-			#cmd = 'originate {%(var)s}sofia/%(profile)s/%(dst_number)s@%(dst_address)s %(application)s' % {
-			#	'var': var,
-			#	'dst_number': self.dstNum,
-			#	'profile': config.profile,
-			#	'dst_address': config.dst_address,
-			#	#'application': application
-			#}
+			cmd = 'originate {%(var)s}sofia/%(profile)s/%(dst_number)s@%(dst_address)s %(application)s' % {
+				'var': var,
+				'dst_number': self.dstNum,
+				'profile': config.profile,
+				'dst_address': config.dst_address,
+				'application': application
+			}
 
-			cmd = 'originate {%(var)s}user/%(dst_number)s %(application)s' % {
-			 	'var': var,
-			 	'dst_number': self.dstNum,
-			 	'application': application
-			 }
+			# cmd = 'originate {%(var)s}user/%(dst_number)s %(application)s' % {
+			#  	'var': var,
+			#  	'dst_number': self.dstNum,
+			#  	'application': application
+			#  }
 
 			result = await fsCli.execute(cmd)
-			logger.debug('Call.start() -> result: %s', result)
+			logger.debug('Call.start() -> result: %s. uuid: %s', result, self.guid)
 
 		except Exception as e:
-			if self.state == 'DIALING':
-				logger.warning('Failed to connect call, src = %s, dst = %s, uuid = %s: %s', self.srcNum, self.dstNum, self.guid, e)
-				if re.search(self.available_reject_mask, str(e)):
-					self.dst_number_available = True
-				self.onTerminated()
+			#if self.state == 'DIALING':
+			error_code  = str(e).strip()
+			logger.info('Call.start -> Failed initiate call. Error: %s. uuid: %s', self.guid, e)
+			
+			if error_code:
+				if error_code in CallState.disconnect_codes_map:
+					self.disconnect_code = error_code
+			else:
+				self.disconnect_code = 'ORIGINATOR_CANCEL'
+
+			self.onTerminated()
 		else:
 			self.state = 'ACTIVE'
+			self.disconnect_code = CallState.states_disconnect_code_map[self.state]
+
 			self.connectTime = datetime.utcnow()
 			await self.stop()
 
@@ -284,27 +334,29 @@ class Call:
 				logger.debug('Call.onCheckCallState -> callInfo: %s', callInfo)
 				try:
 					self.state = re.findall('.*Channel-Call-State: (\w+).*', callInfo)[0]
-					logger.info('Call.onCheckCallState -> state: %s', self.state)
+					logger.info('Call.onCheckCallState -> state: %s. uuid: %s', self.state, self.guid)
 				except Exception as e:
-					logger.info('Call.onCheckCallState -> Cant find call state from: %s. Exception: %s', (callInfo, e))
+					logger.info('Call.onCheckCallState -> Cant get Channel-Call-State: %s. Exception: %s. uuid: %s', callInfo, e, self.guid)
+					self.disconnect_code = 'ORIGINATOR_CANCEL'
 					await self.stop()
 					break
 
-				if self.state in CallState.state_map and CallState.state_map[self.state]:
-					self.dst_number_available = True
+				if self.state in CallState.states_disconnect_code_map and CallState.states_disconnect_code_map[self.state] in CallState.success_disconnect_codes:
+					self.disconnect_code = CallState.states_disconnect_code_map[self.state]
 					await self.stop()
 					break
 
 				await asyncio.sleep(timeout)
 			except Exception as e:
-				logger.debug('Call.onCheckCallState -> Exception: %s', e)
-				await self.stop()
+				logger.debug('Call.onCheckCallState -> Exception: %s. uuid: %s', e, self.guid)
+				#await self.stop()
 				break
 	
 	async def onConnectTimeoutTimer(self, timeout):
 		await asyncio.sleep(timeout)
 
 		logger.debug('Connect timeout exceeds, stopping call with uuid = %s', self.guid)
+		self.disconnect_code = 'RINGING_TIMEOUT'
 		await self.stop()
 
 # global objects will be inited in App.start()

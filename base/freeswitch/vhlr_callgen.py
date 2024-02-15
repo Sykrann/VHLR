@@ -37,7 +37,7 @@ class Config(freeswitch_api.Config):
 		self.dlr_http_method = 'GET'
 		self.dlr_https_validate_cert = False
 		self.reconnect_schedule = None
-		self.check_timeout = 1
+		self.check_timeout = 0.5
 		
 		# Cache options
 		# self.cache_type = 'redis'
@@ -57,8 +57,6 @@ class CallGenerator:
 		self.calls = {}
 		self.reconnectSchedule = app.config.reconnect_schedule
 		self.callAttemptCount = 0
-		self.dst_number_available = None
-		# self.fillRedisTask = None
 
 	def start(self):
 		self.createCall()
@@ -113,11 +111,8 @@ class CallGenerator:
 
 	def onCallTerminated(self, call):
 		logger.debug('CallGenerator.onCallTerminated(): %s', call.guid)
-		self.dst_number_available = call.dst_number_available
-
 		# Add number status to Redis
 		# self.fillRedis(call)
-
 		try:
 			del self.calls[call.guid]
 		except:
@@ -255,4 +250,4 @@ def main(params):
 	uvloop.install()
 	asyncio.run(app.start(params))
 	
-	return app.callGenerator.dst_number_available
+	return app.callGenerator.call.disconnect_code

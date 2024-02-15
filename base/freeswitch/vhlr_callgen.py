@@ -57,6 +57,7 @@ class CallGenerator:
 		self.calls = {}
 		self.reconnectSchedule = app.config.reconnect_schedule
 		self.callAttemptCount = 0
+		self.disconnect_code = None
 
 	def start(self):
 		self.createCall()
@@ -111,6 +112,7 @@ class CallGenerator:
 
 	def onCallTerminated(self, call):
 		logger.debug('CallGenerator.onCallTerminated(): %s', call.guid)
+		self.disconnect_code = call.disconnect_code
 		# Add number status to Redis
 		# self.fillRedis(call)
 		try:
@@ -250,4 +252,4 @@ def main(params):
 	uvloop.install()
 	asyncio.run(app.start(params))
 	
-	return app.callGenerator.call.disconnect_code
+	return app.callGenerator.disconnect_code

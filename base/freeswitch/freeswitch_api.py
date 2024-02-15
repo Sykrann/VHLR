@@ -268,7 +268,7 @@ class Call:
 		except Exception as e:
 			#if self.state == 'DIALING':
 			error_code  = str(e).strip()
-			logger.info('Call.start -> Failed initiate call. Error: %s. uuid: %s', self.guid, e)
+			logger.info('Call.start -> Failed initiate call. Error: %s. uuid: %s', e, self.guid)
 			
 			if error_code:
 				if error_code in CallState.disconnect_codes_map:

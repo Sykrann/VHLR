@@ -58,6 +58,7 @@ class CallGenerator:
 		self.reconnectSchedule = app.config.reconnect_schedule
 		self.callAttemptCount = 0
 		self.disconnect_code = None
+		self.createCallTask = None
 
 	def start(self):
 		self.createCall()
@@ -77,13 +78,13 @@ class CallGenerator:
 		if self.reconnectSchedule:
 			delay = self.reconnectSchedule.pop(0)
 
-		async_utils.create_task(
-			self.createCallTask(delay),
+		self.createCallTask = async_utils.create_task(
+			self.onCreateCallTask(delay),
 			logger=logger,
 			msg='Create call task exception'
 		)
 
-	async def createCallTask(self, delay=0):
+	async def onCreateCallTask(self, delay=0):
 		self.callAttemptCount += 1
 		if delay:
 			await asyncio.sleep(delay)
@@ -119,6 +120,10 @@ class CallGenerator:
 			del self.calls[call.guid]
 		except:
 			pass
+
+		if self.createCallTask:
+			self.createCallTask.cancel()
+			self.createCallTask = None
 
 		self.app.stop()
 

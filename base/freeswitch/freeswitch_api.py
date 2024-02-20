@@ -8,7 +8,7 @@ import logging
 #import argparse
 #import shlex
 #import json
-#import uuid
+import uuid
 import re
 import random
 import asyncio
@@ -35,7 +35,7 @@ class Config:
 		self.dst_address = "192.168.127.130:5060" # address:port
 		self.src_number_pattern = None
 		self.dst_number_pattern = None
-		self.connect_timeout = 10 # sec
+		self.connect_timeout = 7 # sec
 		self.max_connected_duration = None # sec, format: X or (X, Y) - random value in the range [X, Y] for each call
 		self.cps = 1
 		self.max_calls_count = None
@@ -78,15 +78,24 @@ class Config:
 class FSCLI:
 	def __init__(self, host=None, port=None):
 		self.command = 'fs_cli%s%s' % ((' -H %s' % host) if host else '', (' -P %s' % port) if port else '')
+		self.proc_list = {}
 
-	async def execute(self, cmd):
+	async def execute(self, cmd, type='call_orignate'):
+		fs_guid = str(uuid.uuid1())
 		cmd = '%s -x "%s"' % (self.command, cmd)
 		proc = await asyncio.create_subprocess_shell(
 			cmd,
 			stdout=asyncio.subprocess.PIPE,
 			stderr=asyncio.subprocess.PIPE)
+		self.proc_list[fs_guid] = proc
 
 		stdout, stderr = await proc.communicate()
+		
+		# Delete after finising
+		try:
+			del self.proc_list[fs_guid]
+		except:
+			pass
 
 		if proc.returncode:
 			if stderr:
@@ -100,6 +109,15 @@ class FSCLI:
 			if result.startswith('-ERR'):
 				raise Exception(result[4:].strip())
 			return result
+	
+	def fsCliTerminate(self):
+		if self.proc_list:
+			logger.info('FSCLI.fsCliTerminate()')
+			for proc in self.proc_list.values():
+				try:
+					proc.terminate()
+				except Exception as e:
+					logger.debug('FSCLI.fsCliTerminate() -> Exception : %s', e)
 
 
 class CallState:
@@ -123,6 +141,7 @@ class CallState:
 		'UNALLOCATED_NUMBER':			'404',
 		'NO_ROUTE_TRANSIT_NET': 		'404',
 		'NO_ROUTE_DESTINATION':			'404',
+		'USER_NOT_REGISTERED':			'404',
 		'USER_BUSY': 					'486',
 		'NO_USER_RESPONSE': 			'408',
 		'RINGING_TIMEOUT':				'408',
@@ -150,13 +169,15 @@ class CallState:
 		'SERVICE_NOT_IMPLEMENTED': 		'501',
 		'INCOMPATIBLE_DESTINATION': 	'488',
 		'RECOVERY_ON_TIMER_EXPIRE': 	'504',
-		'ORIGINATOR_CANCEL': 			'487'
+		'ORIGINATOR_CANCEL': 			'487',
+		'NORMAL_CLEARING': 				'487',
 	}
 
 	success_disconnect_codes = [
 		'CONNECTED',
 		'RINGING',
 		'USER_BUSY',
+		'NORMAL_CLEARING',
 		'NORMAL_TEMPORARY_FAILURE'
 	]
 
@@ -268,15 +289,14 @@ class Call:
 		except Exception as e:
 			#if self.state == 'DIALING':
 			error_code  = str(e).strip()
-			logger.info('Call.start -> Failed initiate call. Error: %s. uuid: %s', e, self.guid)
-			
 			if error_code:
+				logger.info('Call.start -> Failed initiate call. Error: %s. uuid: %s', e, self.guid)
 				if error_code in CallState.disconnect_codes_map:
 					self.disconnect_code = error_code
-			else:
-				self.disconnect_code = 'ORIGINATOR_CANCEL'
+				else:
+					self.disconnect_code = 'ORIGINATOR_CANCEL'
 
-			self.onTerminated()
+				self.onTerminated()
 		else:
 			self.state = 'ACTIVE'
 			self.disconnect_code = CallState.states_disconnect_code_map[self.state]
@@ -323,11 +343,14 @@ class Call:
 		if self.checkCallStateTask:
 			self.checkCallStateTask.cancel()
 			self.checkCallStateTask = None
+
+		fsCli.fsCliTerminate()
 		
 		if self.owner:
 			self.owner.onCallTerminated(self)
 
 	async def onCheckCallState(self, timeout):
+		stop_call = False
 		while True:
 			try:
 				callInfo = await fsCli.execute('uuid_dump %s' % self.guid)
@@ -338,19 +361,22 @@ class Call:
 				except Exception as e:
 					logger.info('Call.onCheckCallState -> Cant get Channel-Call-State: %s. Exception: %s. uuid: %s', callInfo, e, self.guid)
 					self.disconnect_code = 'ORIGINATOR_CANCEL'
-					await self.stop()
+					stop_call = True
 					break
 
 				if self.state in CallState.states_disconnect_code_map and CallState.states_disconnect_code_map[self.state] in CallState.success_disconnect_codes:
 					self.disconnect_code = CallState.states_disconnect_code_map[self.state]
-					await self.stop()
+					stop_call = True
 					break
 
 				await asyncio.sleep(timeout)
 			except Exception as e:
 				logger.debug('Call.onCheckCallState -> Exception: %s. uuid: %s', e, self.guid)
-				#await self.stop()
 				break
+		if stop_call:
+			await self.stop()	
+
+		
 	
 	async def onConnectTimeoutTimer(self, timeout):
 		await asyncio.sleep(timeout)

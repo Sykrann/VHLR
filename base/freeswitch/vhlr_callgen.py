@@ -71,7 +71,7 @@ class CallGenerator:
 			logger.info('Waiting for call termination...')
 
 		while self.calls:
-			await asyncio.sleep(0.2)
+			await asyncio.sleep(0.1)
 
 	def createCall(self):
 		delay = 0

@@ -22,7 +22,7 @@ def vhlrRequest(request):
 	data = request.data
 	try:
 		dst_number = data['dst_number']
-		if data.get(data['connect_timeout']):
+		if data.get('connect_timeout'):
 			connect_timeout = int(data['connect_timeout'])
 	except Exception as e:
 		messageExist = {'Cant accept HLR request. Error: %s' % e}

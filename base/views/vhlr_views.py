@@ -18,9 +18,12 @@ redis_expire_timeout = 60
 
 @api_view(['POST'])
 def vhlrRequest(request):
+	connect_timeout = 7
 	data = request.data
 	try:
 		dst_number = data['dst_number']
+		if data.get(data['connect_timeout']):
+			connect_timeout = int(data['connect_timeout'])
 	except Exception as e:
 		messageExist = {'Cant accept HLR request. Error: %s' % e}
 		return Response(messageExist)
@@ -35,7 +38,7 @@ def vhlrRequest(request):
 		disconnect_code = redis_value.decode('utf-8')
 		messageExist = {'number': dst_number, 'code': disconnect_code}
 	else:
-		disconnect_code = vhlr_callgen.main({'dst_number': dst_number})
+		disconnect_code = vhlr_callgen.main({'dst_number': dst_number, 'connect_timeout': connect_timeout})
 		messageExist = {'number': dst_number, 'code': disconnect_code}
 
 		# Add number status to the Redis

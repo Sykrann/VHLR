@@ -35,7 +35,7 @@ class Config:
 		self.dst_address = "192.168.127.130:5060" # address:port
 		self.src_number_pattern = None
 		self.dst_number_pattern = None
-		self.connect_timeout = 7 # sec
+		#self.connect_timeout = 7 # sec
 		self.max_connected_duration = None # sec, format: X or (X, Y) - random value in the range [X, Y] for each call
 		self.cps = 1
 		self.max_calls_count = None
@@ -382,7 +382,11 @@ class Call:
 		await asyncio.sleep(timeout)
 
 		logger.debug('Connect timeout exceeds, stopping call with uuid = %s', self.guid)
-		self.disconnect_code = 'RINGING_TIMEOUT'
+		# Wait PROGESS for some time
+		if self.state and self.state in ('EARLY', 'RINGING'):
+			self.disconnect_code = 'RINGING'
+		else:	
+			self.disconnect_code = 'RINGING_TIMEOUT'
 		await self.stop()
 
 # global objects will be inited in App.start()
